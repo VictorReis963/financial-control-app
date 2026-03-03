@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+    <!-- Biblioteca Chart.js usada para criar gráficos (no caso, gráfico de gastos por mês) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Define codificação UTF-8 (evita erro com acentos) -->
+    <meta charset="UTF-8">
+
+    <!-- Título que aparece na aba do navegador -->
+    <title>Financial Control</title>
+
+    <!-- Importa Tailwind CSS para estilização rápida com classes prontas -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+</head>
+
+<!--
+min-h-screen → altura mínima da tela inteira
+flex → ativa flexbox
+items-center justify-center → centraliza conteúdo no meio
+bg-cover bg-center → ajusta imagem de fundo
+-->
+<body class="min-h-screen flex items-center justify-center bg-cover bg-center"
+      style="background-image: url('https://img.freepik.com/vetores-gratis/fundo-elegante-com-padrao-de-damasco-e-moldura-dourada_1048-20169.jpg');">
+
+<!-- Container principal do sistema -->
+<div class="bg-white/90 backdrop-blur-md p-8 rounded-2xl shadow-2xl w-full max-w-lg">
+
+    <h1 class="text-2xl font-bold text-center mb-6">
+        Financial Control
+    </h1>
+
+    <!-- ================== LOGIN ================== -->
+    <div class="mb-6">
+
+        <!-- Campo usuário -->
+        <input id="username" type="text" placeholder="Usuário"
+               class="w-full p-2 mb-3 border rounded-lg">
+
+        <!-- Campo senha -->
+        <input id="password" type="password" placeholder="Senha"
+               class="w-full p-2 mb-3 border rounded-lg">
+
+        <!-- Botão que chama função login() -->
+        <button onclick="login()"
+                class="w-full bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition">
+            Login
+        </button>
+
+        <!-- Botão para limpar autenticação -->
+        <button onclick="logout()"
+                class="w-full bg-red-500 text-white p-2 rounded-lg hover:bg-red-600 transition mt-2">
+            Desconectar
+        </button>
+
+        <!-- Área onde aparece mensagem de status do login -->
+        <p id="loginStatus" class="text-center mt-2 text-sm text-gray-600"></p>
+    </div>
+
+    <hr class="mb-6">
+
+    <!-- ================== CRIAR DESPESA ================== -->
+    <div class="mb-6">
+
+        <!-- Descrição da despesa -->
+        <input id="description" type="text" placeholder="Descrição"
+               class="w-full p-2 mb-3 border rounded-lg">
+
+        <!-- Valor -->
+        <input id="amount" type="number" placeholder="Valor"
+               class="w-full p-2 mb-3 border rounded-lg">
+
+        <!-- Data -->
+        <input id="date" type="date"
+               class="w-full p-2 mb-3 border rounded-lg">
+
+        <!-- Envia despesa para API -->
+        <button onclick="createExpense()"
+                class="w-full bg-green-500 text-white p-2 rounded-lg hover:bg-green-600 transition">
+            Criar Despesa
+        </button>
+    </div>
+
+    <hr class="mb-6">
+
+    <!-- ================== ABAS ================== -->
+    <div class="flex mb-4">
+        <button onclick="showTab('list')"
+                class="flex-1 bg-gray-800 text-white p-2 rounded-l-lg">
+            Lista
+        </button>
+        <button onclick="showTab('monthly')"
+                class="flex-1 bg-gray-600 text-white p-2 rounded-r-lg">
+            Total por Mês
+        </button>
+    </div>
+
+    <!-- ================== TOTAL GERAL ================== -->
+    <div class="text-center mb-4">
+        <h2 class="text-lg font-semibold">Total Geral</h2>
+        <p id="totalAmount" class="text-2xl font-bold text-green-600">
+            R$ 0.00
+        </p>
+    </div>
+
+    <!-- ================== LISTA ================== -->
+    <div id="listTab">
+        <button onclick="loadExpenses()"
+                class="w-full bg-gray-800 text-white p-2 rounded-lg hover:bg-gray-900 transition mb-4">
+            Recarregar Lista
+        </button>
+
+        <!-- Onde as despesas serão inseridas dinamicamente -->
+        <div id="expenseList" class="space-y-2"></div>
+    </div>
+
+    <!-- ================== TOTAL POR MÊS ================== -->
+    <div id="monthlyTab" class="hidden">
+
+        <!-- Canvas onde o gráfico será desenhado -->
+        <canvas id="monthlyChart" class="mb-6"></canvas>
+
+        <!-- Lista textual dos totais mensais -->
+        <div id="monthlyTotals" class="space-y-2"></div>
+    </div>
+
+</div>
+
+<script>
+
+    // ================== VARIÁVEIS GLOBAIS ==================
+
+    let basicAuth = ""            // Guarda credenciais codificadas
+    let expensesData = []         // Guarda despesas vindas da API
+    let monthlyChartInstance = null  // Guarda instância do gráfico
+
+
+    // ================== LOGIN ==================
+
+    function login() {
+
+        const username = document.getElementById("username").value
+        const password = document.getElementById("password").value
+
+        // Codifica usuário e senha em Base64
+        basicAuth = "Basic " + btoa(username + ":" + password)
+
+        // Testa login chamando endpoint protegido
+        fetch("http://localhost:8080/user/me", {
+            headers: { "Authorization": basicAuth }
+        })
+            .then(res => {
+                if (!res.ok) throw new Error()
+                document.getElementById("loginStatus").innerText = "Login realizado com sucesso"
+                document.getElementById("loginStatus").className = "text-green-600 text-center mt-2 text-sm"
+            })
+            .catch(() => {
+                document.getElementById("loginStatus").innerText = "Usuário ou senha inválidos"
+                document.getElementById("loginStatus").className = "text-red-600 text-center mt-2 text-sm"
+            })
+    }
+
+
+    // ================== LOGOUT ==================
+
+    function logout() {
+        basicAuth = ""
+        expensesData = []
+
+        document.getElementById("loginStatus").innerText = "Desconectado"
+        document.getElementById("expenseList").innerHTML = ""
+        document.getElementById("monthlyTotals").innerHTML = ""
+        document.getElementById("totalAmount").innerText = "R$ 0.00"
+
+        if (monthlyChartInstance) {
+            monthlyChartInstance.destroy()
+        }
+    }
+
+
+    // ================== CRIAR DESPESA ==================
+
+    function createExpense() {
+
+        const description = document.getElementById("description").value
+        const amount = document.getElementById("amount").value
+        const date = document.getElementById("date").value
+
+        fetch("http://localhost:8080/expenses", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": basicAuth
+            },
+            body: JSON.stringify({
+                description,
+                amount: parseFloat(amount),
+                date
+            })
+        })
+            .then(() => loadExpenses())
+    }
+
+
+    // ================== CARREGAR DESPESAS ==================
+
+    function loadExpenses() {
+
+        fetch("http://localhost:8080/expenses", {
+            headers: { "Authorization": basicAuth }
+        })
+            .then(res => res.json())
+            .then(data => {
+
+                expensesData = data
+
+                // Ordena por data (mais recente primeiro)
+                expensesData.sort((a, b) =>
+                    new Date(b.date) - new Date(a.date)
+                )
+
+                const list = document.getElementById("expenseList")
+                list.innerHTML = ""
+
+                let total = 0
+
+                expensesData.forEach(expense => {
+
+                    total += expense.amount
+
+                    list.innerHTML += `
+                    <div class="flex justify-between items-center bg-gray-50 p-3 rounded-lg shadow-sm">
+                        <div>
+                            <p class="font-semibold">${expense.description}</p>
+                            <p class="text-sm text-gray-500">
+                                R$ ${expense.amount.toFixed(2)} • ${expense.date}
+                            </p>
+                        </div>
+
+                        <button onclick="deleteExpense(${expense.id})"
+                            class="bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600 transition">
+                            X
+                        </button>
+                    </div>
+                    `
+                })
+
+                document.getElementById("totalAmount").innerText =
+                    "R$ " + total.toFixed(2)
+
+                calculateMonthlyTotals()
+            })
+    }
+
+
+    // ================== CALCULAR TOTAL MENSAL ==================
+
+    function calculateMonthlyTotals() {
+
+        const monthly = {}
+
+        expensesData.forEach(expense => {
+
+            // Pega apenas "YYYY-MM"
+            const month = expense.date.substring(0,7)
+
+            if (!monthly[month]) {
+                monthly[month] = 0
+            }
+
+            monthly[month] += expense.amount
+        })
+
+        const container = document.getElementById("monthlyTotals")
+        container.innerHTML = ""
+
+        const sortedMonths = Object.keys(monthly)
+            .sort((a, b) => new Date(b) - new Date(a))
+
+        sortedMonths.forEach(month => {
+            container.innerHTML += `
+            <div class="bg-gray-100 p-3 rounded-lg shadow-sm">
+                <p class="font-semibold">${month}</p>
+                <p class="text-green-600 font-bold">
+                    R$ ${monthly[month].toFixed(2)}
+                </p>
+            </div>
+            `
+        })
+
+        const ctx = document.getElementById('monthlyChart')
+
+        if (monthlyChartInstance) {
+            monthlyChartInstance.destroy()
+        }
+
+        // Cria gráfico de barras
+        monthlyChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: sortedMonths,
+                datasets: [{
+                    label: 'Gasto Mensal (R$)',
+                    data: sortedMonths.map(month => monthly[month]),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        })
+    }
+
+
+    // ================== DELETAR ==================
+
+    function deleteExpense(id) {
+
+        const confirmDelete = confirm("Tem certeza que deseja excluir essa despesa?")
+        if (!confirmDelete) return
+
+        fetch("http://localhost:8080/expenses/" + id, {
+            method: "DELETE",
+            headers: { "Authorization": basicAuth }
+        })
+            .then(() => loadExpenses())
+    }
+
+
+    // ================== TROCAR ABAS ==================
+
+    function showTab(tab) {
+
+        document.getElementById("listTab").classList.add("hidden")
+        document.getElementById("monthlyTab").classList.add("hidden")
+
+        if (tab === "list") {
+            document.getElementById("listTab").classList.remove("hidden")
+        } else {
+            document.getElementById("monthlyTab").classList.remove("hidden")
+        }
+    }
+
+</script>
+
+</body>
+</html>
